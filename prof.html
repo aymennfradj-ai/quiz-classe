@@ -1,0 +1,359 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Quiz enseignant</title>
+<style>
+:root{--bg:#f4f6f9;--fg:#1b2430;--card:#fff;--muted:#66727f;--accent:#1d5fd6;--ok:#1f8a4c;--bad:#c63a3a;--line:#d9dfe6}
+@media (prefers-color-scheme:dark){:root{--bg:#11161c;--fg:#e8edf2;--card:#1a212a;--muted:#97a3af;--accent:#6aa1ff;--ok:#4cc47f;--bad:#ff7d7d;--line:#2b3540}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:860px;margin:0 auto;padding:20px 16px 48px;display:grid;gap:16px}
+h1{font-size:1.3rem;margin:0}
+h2{font-size:1.05rem;margin:0 0 10px}
+#app{display:grid;gap:16px}
+#app[hidden]{display:none}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;min-width:0}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.grow{flex:1 1 200px}
+label{display:block;font-weight:600;margin:10px 0 4px}
+input,textarea,select{width:100%;font:inherit;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg)}
+button{font:inherit;cursor:pointer;padding:10px 16px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--fg)}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+button.danger{color:var(--bad)}
+button:disabled{opacity:.5;cursor:default}
+.err{background:var(--bad);color:#fff;padding:10px 14px;border-radius:8px}
+.muted{color:var(--muted)}
+.opts{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+@media (max-width:520px){.opts{grid-template-columns:1fr}}
+.q{border-top:1px solid var(--line);padding:10px 0}
+.q:first-child{border-top:0}
+.q code{font-family:ui-monospace,Consolas,monospace}
+.q ul{margin:4px 0;padding-left:1.2em}
+.q li.right{color:var(--ok);font-weight:700}
+.stat{font-size:1.6rem;font-weight:700}
+ol{padding-left:1.4em;margin:6px 0}
+li .pts{float:right;font-variant-numeric:tabular-nums}
+.bars{display:grid;gap:6px;margin-top:8px}
+.bar{display:flex;gap:8px;align-items:center}
+.bar i{display:block;height:14px;background:var(--accent);border-radius:3px;min-width:2px}
+.bar.right i{background:var(--ok)}
+</style>
+</head>
+<body>
+<main>
+<div class="row"><h1 class="grow">Quiz : espace enseignant</h1><button id="logout" hidden>Se déconnecter</button></div>
+<p id="err" class="err" hidden></p>
+
+<section id="login" class="card" hidden>
+  <h2>Connexion enseignant</h2>
+  <label for="email">E-mail</label>
+  <input id="email" type="email" autocomplete="username">
+  <label for="pass">Mot de passe</label>
+  <input id="pass" type="password" autocomplete="current-password">
+  <p><button id="loginBtn" class="primary">Se connecter</button></p>
+</section>
+
+<div id="app" hidden>
+
+<section class="card">
+  <h2>Déroulement</h2>
+  <p class="muted">Lien pour les élèves : <b id="studentLink"></b></p>
+  <div class="row">
+    <div><div class="stat" id="playersCount">0</div><div class="muted">élèves connectés</div></div>
+    <div id="liveBox" hidden><div class="stat" id="answeredCount">0</div><div class="muted">réponses reçues</div></div>
+    <div id="timerBox" hidden><div class="stat" id="timer">0</div><div class="muted">secondes restantes</div></div>
+  </div>
+  <p id="statusLine" class="muted"></p>
+  <div class="row">
+    <button id="startBtn" class="primary">Démarrer le quiz</button>
+    <button id="endQBtn" hidden>Terminer la question</button>
+    <button id="nextBtn" class="primary" hidden>Question suivante</button>
+    <button id="finishBtn" class="primary" hidden>Afficher le classement final</button>
+    <button id="resetBtn" class="danger">Réinitialiser</button>
+  </div>
+  <div id="revealBox" hidden>
+    <h2 style="margin-top:14px">Réponses à la question</h2>
+    <div id="bars" class="bars"></div>
+  </div>
+</section>
+
+<section class="card" id="boardCard" hidden>
+  <h2>Classement</h2>
+  <ol id="board"></ol>
+</section>
+
+<section class="card">
+  <h2>Questions (<span id="qCount">0</span>)</h2>
+  <div class="row"><button id="exampleBtn">Charger 10 questions d'exemple (Python)</button></div>
+  <div id="qList"></div>
+
+  <h2 style="margin-top:20px">Ajouter une question</h2>
+  <label for="qText">Énoncé</label>
+  <textarea id="qText" rows="2"></textarea>
+  <label>Réponses possibles</label>
+  <div class="opts">
+    <input id="o0" placeholder="Réponse A"><input id="o1" placeholder="Réponse B">
+    <input id="o2" placeholder="Réponse C"><input id="o3" placeholder="Réponse D">
+  </div>
+  <div class="row">
+    <div class="grow"><label for="qCorrect">Bonne réponse</label>
+      <select id="qCorrect"><option value="0">A</option><option value="1">B</option><option value="2">C</option><option value="3">D</option></select></div>
+    <div class="grow"><label for="qDur">Temps (secondes)</label><input id="qDur" type="number" min="5" max="300" value="20"></div>
+  </div>
+  <p><button id="addBtn" class="primary">Ajouter</button></p>
+</section>
+
+</div>
+</main>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
+import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
+import { getFirestore, collection, doc, addDoc, setDoc, getDocs, deleteDoc, onSnapshot, query, orderBy, serverTimestamp, writeBatch } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+import { firebaseConfig } from "./firebase-config.js";
+
+const $ = id => document.getElementById(id);
+const LETTERS = ["A", "B", "C", "D"];
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const stateRef = doc(db, "quiz", "state");
+
+let questions = [], players = {}, scores = {}, responses = [], state = { status: "lobby" };
+let unsubs = [], revealTimer = null, tickTimer = null, busy = false;
+
+const EXAMPLES = [
+  ["Que affiche print(7 + 3 * 2) ?", ["20", "13", "16", "12"], 1],
+  ["Que affiche print(17 // 5) ?", ["3", "3.4", "2", "4"], 0],
+  ["Que affiche print(17 % 5) ?", ["3", "2", "3.4", "12"], 1],
+  ["Que affiche print(17 / 5) ?", ["3", "2", "3.4", "3.5"], 2],
+  ["Que affiche print(20 - 4 * 3) ?", ["48", "8", "12", "24"], 1],
+  ["Que affiche print(100 / 4 / 5) ?", ["5", "5.0", "125.0", "500"], 1],
+  ["Que affiche print(10 + 6 % 4 * 3) ?", ["19", "16", "13", "24"], 1],
+  ["Que affiche print(2 + 18 // 4 % 3) ?", ["5", "4", "2", "3"], 3],
+  ["Que affiche print((15 - 3) // 4 + 10 % 3) ?", ["5", "3", "4", "7"], 2],
+  ["Que affiche print(50 - 7 * (6 // 4 + 2)) ?", ["35", "21", "47", "29"], 3]
+];
+
+function showError(msg) { $("err").textContent = msg; $("err").hidden = !msg; }
+function el(tag, props = {}, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(props)) {
+    if (k === "class") e.className = v;
+    else if (k === "text") e.textContent = v;
+    else if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
+    else e.setAttribute(k, v);
+  }
+  e.append(...kids);
+  return e;
+}
+const editable = () => !["question", "reveal"].includes(state.status);
+
+/* ---------- connexion ---------- */
+$("loginBtn").addEventListener("click", async () => {
+  showError("");
+  try { await signInWithEmailAndPassword(auth, $("email").value.trim(), $("pass").value); }
+  catch (e) { showError("Connexion refusée. Vérifie l'e-mail et le mot de passe."); }
+});
+$("logout").addEventListener("click", () => signOut(auth));
+
+onAuthStateChanged(auth, user => {
+  unsubs.forEach(u => u()); unsubs = [];
+  clearInterval(tickTimer); clearTimeout(revealTimer);
+  if (user && !user.isAnonymous) {
+    $("login").hidden = true; $("app").hidden = false; $("logout").hidden = false;
+    $("studentLink").textContent = location.href.replace(/prof\.html.*$/, "eleve.html");
+    listen();
+  } else {
+    $("login").hidden = false; $("app").hidden = true; $("logout").hidden = true;
+  }
+});
+
+function listen() {
+  const fail = () => showError("Lecture impossible. Vérifie les règles de sécurité Firestore.");
+  unsubs.push(onSnapshot(query(collection(db, "questions"), orderBy("order")), s => {
+    questions = s.docs.map(d => ({ id: d.id, ...d.data() })); renderQuestions(); renderControls();
+  }, fail));
+  unsubs.push(onSnapshot(collection(db, "players"), s => {
+    players = {}; s.forEach(d => players[d.id] = d.data()); renderControls();
+  }, fail));
+  unsubs.push(onSnapshot(collection(db, "scores"), s => {
+    scores = {}; s.forEach(d => scores[d.id] = d.data()); renderBoard();
+  }, fail));
+  unsubs.push(onSnapshot(collection(db, "responses"), s => {
+    responses = s.docs.map(d => d.data()); renderControls();
+  }, fail));
+  unsubs.push(onSnapshot(stateRef, s => {
+    state = s.exists() ? s.data() : { status: "lobby" };
+    armTimer(); renderControls(); renderQuestions(); renderBoard();
+  }, fail));
+}
+
+/* ---------- questions ---------- */
+function renderQuestions() {
+  $("qCount").textContent = questions.length;
+  const box = $("qList");
+  box.replaceChildren();
+  questions.forEach((q, i) => {
+    const ul = el("ul");
+    q.options.forEach((o, k) => ul.append(el("li", { class: k === q.correct ? "right" : "", text: LETTERS[k] + ". " + o })));
+    const del = el("button", { class: "danger", text: "Supprimer", onclick: () => deleteDoc(doc(db, "questions", q.id)) });
+    del.disabled = !editable();
+    box.append(el("div", { class: "q" },
+      el("div", {}, el("b", { text: (i + 1) + ". " }), el("code", { text: q.text }), el("span", { class: "muted", text: "  (" + q.duration + " s)" })),
+      ul, del));
+  });
+  $("exampleBtn").disabled = !editable();
+  $("addBtn").disabled = !editable();
+}
+
+$("addBtn").addEventListener("click", async () => {
+  const text = $("qText").value.trim();
+  const options = [0, 1, 2, 3].map(i => $("o" + i).value.trim());
+  if (!text || options.some(o => !o)) { showError("Remplis l'énoncé et les 4 réponses."); return; }
+  showError("");
+  await addDoc(collection(db, "questions"), {
+    order: Date.now(), text, options,
+    correct: Number($("qCorrect").value),
+    duration: Math.min(300, Math.max(5, Number($("qDur").value) || 20))
+  });
+  $("qText").value = ""; [0, 1, 2, 3].forEach(i => $("o" + i).value = "");
+});
+
+$("exampleBtn").addEventListener("click", async () => {
+  const base = Date.now();
+  const b = writeBatch(db);
+  EXAMPLES.forEach(([text, options, correct], i) =>
+    b.set(doc(collection(db, "questions")), { order: base + i, text, options, correct, duration: 20 }));
+  await b.commit();
+});
+
+/* ---------- déroulement ---------- */
+function renderControls() {
+  const st = state.status;
+  $("playersCount").textContent = Object.keys(players).length;
+  const inQ = st === "question";
+  $("liveBox").hidden = !inQ;
+  $("timerBox").hidden = !inQ;
+  if (inQ) $("answeredCount").textContent = responses.filter(r => r.index === state.index).length;
+  $("startBtn").hidden = !(st === "lobby" || st === "finished");
+  $("startBtn").disabled = questions.length === 0;
+  $("endQBtn").hidden = !inQ;
+  const last = st === "reveal" && state.index + 1 >= state.total;
+  $("nextBtn").hidden = !(st === "reveal" && !last);
+  $("finishBtn").hidden = !last;
+  $("statusLine").textContent =
+    st === "question" ? "Question " + (state.index + 1) + " / " + state.total + " en cours." :
+    st === "reveal" ? "Résultats de la question " + (state.index + 1) + " affichés aux élèves." :
+    st === "finished" ? "Quiz terminé. Le classement est affiché aux élèves." :
+    questions.length ? "En attente : les élèves rejoignent, puis démarre le quiz." : "Ajoute des questions pour commencer.";
+  renderReveal();
+}
+
+function renderReveal() {
+  const show = state.status === "reveal";
+  $("revealBox").hidden = !show;
+  if (!show) return;
+  const bars = $("bars");
+  bars.replaceChildren();
+  const max = Math.max(1, ...state.counts);
+  state.q.options.forEach((o, i) => {
+    const w = 40 + 160 * state.counts[i] / max;
+    const row = el("div", { class: "bar" + (i === state.correct ? " right" : "") },
+      el("span", { text: LETTERS[i] + ". " + o }),
+      el("i", { style: "width:" + w + "px" }),
+      el("span", { text: String(state.counts[i]) }));
+    bars.append(row);
+  });
+}
+
+function renderBoard() {
+  const rows = state.status === "finished" && state.leaderboard
+    ? state.leaderboard
+    : Object.entries(scores).map(([uid, s]) => ({ uid, name: s.name, score: s.score })).sort((a, b) => b.score - a.score);
+  $("boardCard").hidden = rows.length === 0;
+  const ol = $("board");
+  ol.replaceChildren();
+  rows.forEach(r => ol.append(el("li", {}, el("span", { text: r.name }), el("span", { class: "pts", text: String(r.score) }))));
+}
+
+function armTimer() {
+  clearTimeout(revealTimer); clearInterval(tickTimer);
+  if (state.status !== "question" || !state.startedAt) return;
+  const end = state.startedAt.toMillis() + state.duration * 1000;
+  revealTimer = setTimeout(revealQuestion, Math.max(0, end + 1500 - Date.now()));
+  const tick = () => { $("timer").textContent = Math.max(0, Math.ceil((end - Date.now()) / 1000)); };
+  tick(); tickTimer = setInterval(tick, 500);
+}
+
+async function startQuestion(i) {
+  const q = questions[i];
+  await setDoc(stateRef, {
+    status: "question", index: i, total: questions.length,
+    q: { text: q.text, options: q.options },
+    duration: q.duration || 20,
+    startedAt: serverTimestamp()
+  });
+}
+
+async function revealQuestion() {
+  if (busy || state.status !== "question" || !state.startedAt) return;
+  busy = true;
+  try {
+    const i = state.index, q = questions[i];
+    const start = state.startedAt.toMillis(), dur = state.duration * 1000;
+    const snap = await getDocs(collection(db, "responses"));
+    const counts = [0, 0, 0, 0], pts = {};
+    snap.forEach(d => {
+      const r = d.data();
+      if (r.index !== i || !r.ts) return;
+      counts[r.choice]++;
+      const el = r.ts.toMillis() - start;
+      pts[r.uid] = (r.choice === q.correct && el <= dur + 2000)
+        ? Math.round(500 + 500 * Math.max(0, 1 - el / dur)) : 0;
+    });
+    for (const [uid, p] of Object.entries(players)) {
+      const byQ = { ...((scores[uid] && scores[uid].byQ) || {}), [i]: pts[uid] || 0 };
+      const score = Object.values(byQ).reduce((a, b) => a + b, 0);
+      await setDoc(doc(db, "scores", uid), { name: p.name, byQ, score });
+    }
+    await setDoc(stateRef, { ...state, status: "reveal", correct: q.correct, counts });
+  } catch (e) { showError("Erreur pendant le calcul des scores : " + e.message); }
+  busy = false;
+}
+
+async function finishQuiz() {
+  const snap = await getDocs(collection(db, "scores"));
+  const got = {}; snap.forEach(d => got[d.id] = d.data());
+  const board = Object.entries(players).map(([uid, p]) => ({ uid, name: p.name, score: (got[uid] && got[uid].score) || 0 }))
+    .sort((a, b) => b.score - a.score);
+  await setDoc(stateRef, { status: "finished", total: state.total, leaderboard: board });
+}
+
+async function wipe(name) {
+  const s = await getDocs(collection(db, name));
+  const b = writeBatch(db);
+  s.forEach(d => b.delete(d.ref));
+  await b.commit();
+}
+
+$("startBtn").addEventListener("click", async () => {
+  showError("");
+  if (state.status === "finished") await resetAll(true);
+  startQuestion(0);
+});
+$("endQBtn").addEventListener("click", revealQuestion);
+$("nextBtn").addEventListener("click", () => startQuestion(state.index + 1));
+$("finishBtn").addEventListener("click", finishQuiz);
+
+async function resetAll(skipConfirm) {
+  if (!skipConfirm && !confirm("Effacer les élèves, les réponses et les scores ?")) return;
+  for (const c of ["responses", "scores", "players"]) await wipe(c);
+  await setDoc(stateRef, { status: "lobby" });
+}
+$("resetBtn").addEventListener("click", () => resetAll(false));
+</script>
+</body>
+</html>

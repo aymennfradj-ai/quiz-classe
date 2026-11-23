@@ -112,7 +112,7 @@ li .pts{float:right;font-variant-numeric:tabular-nums}
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
 import { getFirestore, collection, doc, addDoc, setDoc, getDocs, deleteDoc, onSnapshot, query, orderBy, serverTimestamp, writeBatch } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
-import { firebaseConfig } from "./firebaseconfig.js";
+import { firebaseConfig } from "./firebase-config.js";
 
 const $ = id => document.getElementById(id);
 const LETTERS = ["A", "B", "C", "D"];

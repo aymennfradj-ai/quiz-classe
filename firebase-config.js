@@ -1,10 +1,9 @@
-// Collez ici les valeurs copiées depuis Firebase :
-// Paramètres du projet > Vos applications > firebaseConfig
 export const firebaseConfig = {
-  apiKey: "COLLER_ICI",
-  authDomain: "COLLER_ICI",
-  projectId: "COLLER_ICI",
-  storageBucket: "COLLER_ICI",
-  messagingSenderId: "COLLER_ICI",
-  appId: "COLLER_ICI"
+  apiKey: "AIzaSyBkhH4lJy910q0JYaj6wRMlIJju0Rn4J-M",
+  authDomain: "quizeleve.firebaseapp.com",
+  projectId: "quizeleve",
+  storageBucket: "quizeleve.firebasestorage.app",
+  messagingSenderId: "426371131092",
+  appId: "1:426371131092:web:ad31882e9d8873988cbd41",
+  measurementId: "G-436YCV943Y"
 };

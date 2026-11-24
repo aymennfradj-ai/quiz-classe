@@ -1,3 +1,4 @@
+
 <!doctype html>
 <html lang="fr">
 <head>
@@ -18,6 +19,7 @@ label{display:block;margin-bottom:6px;font-weight:600}
 input{width:100%;font:inherit;padding:12px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg)}
 button{font:inherit;cursor:pointer}
 .primary{margin-top:12px;width:100%;padding:12px;border:0;border-radius:8px;background:var(--accent);color:#fff;font-weight:600}
+#switchBtn{background:#66727f;margin-bottom:12px}
 .meta{display:flex;justify-content:space-between;color:var(--muted)}
 .bar{height:8px;background:var(--line);border-radius:4px;overflow:hidden;margin:8px 0}
 #barFill{height:100%;width:100%;background:var(--accent);transition:width .2s linear}
@@ -41,189 +43,394 @@ li span.pts{float:right}
 <h1>Quiz de classe</h1>
 <p id="err" class="err" hidden></p>
 
+<button id="switchBtn" class="primary" hidden>
+Changer d'élève
+</button>
+
 <section id="join" class="screen card" hidden>
-  <label for="nameInput">Ton prénom</label>
-  <input id="nameInput" maxlength="24" autocomplete="off">
-  <button id="joinBtn" class="primary">Rejoindre le quiz</button>
+<label for="nameInput">Ton prénom</label>
+<input id="nameInput" maxlength="24" autocomplete="off">
+<button id="joinBtn" class="primary">Rejoindre le quiz</button>
 </section>
 
 <section id="wait" class="screen card" hidden>
-  <h2 id="hello"></h2>
-  <p class="muted">Attends que l'enseignant lance la question.</p>
+<h2 id="hello"></h2>
+<p class="muted">Attends que l'enseignant lance la question.</p>
 </section>
 
 <section id="question" class="screen card" hidden>
-  <div class="meta"><span id="qNum"></span><span id="timeLeft"></span></div>
-  <div class="bar"><div id="barFill"></div></div>
-  <h2 id="qText"></h2>
-  <div id="opts" class="opts"></div>
-  <p id="sent" class="muted" hidden>Réponse envoyée. Attends la fin du temps.</p>
+<div class="meta"><span id="qNum"></span><span id="timeLeft"></span></div>
+<div class="bar"><div id="barFill"></div></div>
+<h2 id="qText"></h2>
+<div id="opts" class="opts"></div>
+<p id="sent" class="muted" hidden>Réponse envoyée. Attends la fin du temps.</p>
 </section>
 
 <section id="reveal" class="screen card" hidden>
-  <h2 id="verdict"></h2>
-  <p id="goodAnswer"></p>
-  <p id="scoreNow"></p>
-  <p class="muted">La question suivante arrive.</p>
+<h2 id="verdict"></h2>
+<p id="goodAnswer"></p>
+<p id="scoreNow"></p>
+<p class="muted">La question suivante arrive.</p>
 </section>
 
 <section id="final" class="screen card" hidden>
-  <h2>Quiz terminé</h2>
-  <div class="big" id="myFinal"></div>
-  <p id="rank"></p>
-  <ol id="board"></ol>
+<h2>Quiz terminé</h2>
+<div class="big" id="myFinal"></div>
+<p id="rank"></p>
+<ol id="board"></ol>
 </section>
 </main>
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
-import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
-import { getFirestore, doc, setDoc, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+import {
+ getAuth,
+ signInAnonymously,
+ signOut
+} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
+import {
+ getFirestore, doc, setDoc, onSnapshot, serverTimestamp
+} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 import { firebaseConfig } from "./firebase-config.js";
 
 const $ = id => document.getElementById(id);
-const LETTERS = ["A", "B", "C", "D"];
+const LETTERS = ["A","B","C","D"];
+
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
 let uid = null, name = "", joined = false;
-let state = { status: "lobby" };
+let state = {status:"lobby"};
 let myScore = 0;
 let currentIndex = null, localStart = 0, timer = null;
 let choices = {};
-try { choices = JSON.parse(sessionStorage.getItem("choices") || "{}"); } catch (e) {}
-try { name = localStorage.getItem("quizName") || ""; } catch (e) {}
+let stateUnsub = null;
+let scoreUnsub = null;
+let switching = false;
 
-function showError(msg) { $("err").textContent = msg; $("err").hidden = false; }
-function show(id) { for (const s of document.querySelectorAll(".screen")) s.hidden = s.id !== id; }
-function saveChoices() { try { sessionStorage.setItem("choices", JSON.stringify(choices)); } catch (e) {} }
-
-async function join(n) {
-  name = n.trim();
-  if (!name) return;
-  try { localStorage.setItem("quizName", name); } catch (e) {}
-  try {
-    await setDoc(doc(db, "players", uid), { name });
-    joined = true;
-    render();
-  } catch (e) { showError("Impossible de rejoindre. Réessaie."); }
+function showError(msg){
+ $("err").textContent=msg;
+ $("err").hidden=false;
 }
 
-function render() {
-  if (!joined) { show("join"); return; }
-  if (state.status !== "question") { clearInterval(timer); currentIndex = null; }
-  if (state.status === "question") renderQuestion();
-  else if (state.status === "reveal") renderReveal();
-  else if (state.status === "finished") renderFinal();
-  else { choices = {}; saveChoices(); $("hello").textContent = "Bonjour " + name; show("wait"); }
+function clearError(){
+ $("err").hidden=true;
 }
 
-function renderQuestion() {
-  show("question");
-  if (currentIndex !== state.index) {
-    currentIndex = state.index;
-    localStart = Date.now();
-    $("qNum").textContent = "Question " + (state.index + 1) + " / " + state.total;
-    $("qText").textContent = state.q.text;
-    const box = $("opts");
-    box.replaceChildren();
-    state.q.options.forEach((t, i) => {
-      const b = document.createElement("button");
-      b.className = "opt";
-      const l = document.createElement("b"); l.textContent = LETTERS[i];
-      const s = document.createElement("span"); s.textContent = t;
-      b.append(l, s);
-      b.addEventListener("click", () => answer(i));
-      box.append(b);
-    });
-    clearInterval(timer);
-    timer = setInterval(tick, 200);
-    tick();
-  }
-  refreshButtons();
+function show(id){
+ for(const s of document.querySelectorAll(".screen"))
+  s.hidden=s.id!==id;
 }
 
-function refreshButtons() {
-  const mine = choices[state.index];
-  const over = (Date.now() - localStart) / 1000 >= state.duration;
-  document.querySelectorAll("#opts .opt").forEach((b, i) => {
-    b.classList.toggle("chosen", mine === i);
-    b.disabled = mine != null || over;
+function saveChoices(){
+ try{
+  sessionStorage.setItem("choices",JSON.stringify(choices));
+ }catch(e){}
+}
+
+async function join(n){
+ name=n.trim();
+ if(!name || !uid)return;
+
+ clearError();
+
+ try{
+  await setDoc(doc(db,"players",uid),{
+   name,
+   joinedAt:serverTimestamp()
   });
-  $("sent").hidden = mine == null;
+
+  joined=true;
+  $("switchBtn").hidden=false;
+  render();
+
+ }catch(e){
+  showError("Impossible de rejoindre. Réessaie.");
+ }
 }
 
-function tick() {
-  if (state.status !== "question") return;
-  const left = Math.max(0, state.duration - (Date.now() - localStart) / 1000);
-  $("timeLeft").textContent = Math.ceil(left) + " s";
-  $("barFill").style.width = (100 * left / state.duration) + "%";
-  if (left <= 0) refreshButtons();
+function render(){
+ if(!joined){
+  show("join");
+  return;
+ }
+
+ if(state.status!=="question"){
+  clearInterval(timer);
+  currentIndex=null;
+ }
+
+ if(state.status==="question")renderQuestion();
+ else if(state.status==="reveal")renderReveal();
+ else if(state.status==="finished")renderFinal();
+ else{
+  choices={};
+  saveChoices();
+  $("hello").textContent="Bonjour "+name;
+  show("wait");
+ }
 }
 
-async function answer(i) {
-  if (choices[state.index] != null) return;
-  choices[state.index] = i; saveChoices(); refreshButtons();
-  try {
-    await setDoc(doc(db, "responses", uid + "_" + state.index), {
-      uid, name, index: state.index, choice: i, ts: serverTimestamp()
-    });
-  } catch (e) { showError("Ta réponse n'a pas pu être envoyée."); }
-}
+function renderQuestion(){
+ show("question");
 
-function renderReveal() {
-  show("reveal");
-  const mine = choices[state.index];
-  const ok = mine === state.correct;
-  const v = $("verdict");
-  v.textContent = mine == null ? "Pas de réponse" : ok ? "Bonne réponse !" : "Mauvaise réponse";
-  v.className = ok ? "good" : "bad";
-  $("goodAnswer").textContent = "Bonne réponse : " + LETTERS[state.correct] + ". " + state.q.options[state.correct];
-  $("scoreNow").textContent = "Ton score : " + myScore + " points";
-}
+ if(currentIndex!==state.index){
+  currentIndex=state.index;
+  localStart=Date.now();
 
-function renderFinal() {
-  show("final");
-  const board = state.leaderboard || [];
-  const pos = board.findIndex(r => r.uid === uid);
-  const mine = pos >= 0 ? board[pos].score : myScore;
-  $("myFinal").textContent = mine + " points";
-  $("rank").textContent = pos >= 0 ? "Tu es " + (pos + 1) + "e sur " + board.length + "." : "";
-  const ol = $("board");
-  ol.replaceChildren();
-  board.forEach(r => {
-    const li = document.createElement("li");
-    if (r.uid === uid) li.className = "me";
-    const n = document.createElement("span"); n.textContent = r.name;
-    const p = document.createElement("span"); p.className = "pts"; p.textContent = r.score;
-    li.append(n, p);
-    ol.append(li);
+  $("qNum").textContent=
+   "Question "+(state.index+1)+" / "+state.total;
+
+  $("qText").textContent=state.q.text;
+
+  const box=$("opts");
+  box.replaceChildren();
+
+  state.q.options.forEach((t,i)=>{
+   const b=document.createElement("button");
+   b.className="opt";
+
+   const l=document.createElement("b");
+   l.textContent=LETTERS[i];
+
+   const s=document.createElement("span");
+   s.textContent=t;
+
+   b.append(l,s);
+   b.addEventListener("click",()=>answer(i));
+   box.append(b);
   });
+
+  clearInterval(timer);
+  timer=setInterval(tick,200);
+  tick();
+ }
+
+ refreshButtons();
 }
 
-$("nameInput").value = name;
-$("joinBtn").addEventListener("click", () => join($("nameInput").value));
-$("nameInput").addEventListener("keydown", e => { if (e.key === "Enter") join($("nameInput").value); });
+function refreshButtons(){
+ const mine=choices[state.index];
+ const over=(Date.now()-localStart)/1000>=state.duration;
 
-(async () => {
-  try {
-    const cred = await signInAnonymously(auth);
-    uid = cred.user.uid;
-  } catch (e) {
-    showError("Connexion impossible. Vérifie que la connexion anonyme est activée.");
-    return;
+ document.querySelectorAll("#opts .opt").forEach((b,i)=>{
+  b.classList.toggle("chosen",mine===i);
+  b.disabled=mine!=null||over;
+ });
+
+ $("sent").hidden=mine==null;
+}
+
+function tick(){
+ if(state.status!=="question")return;
+
+ const left=Math.max(
+  0,
+  state.duration-(Date.now()-localStart)/1000
+ );
+
+ $("timeLeft").textContent=Math.ceil(left)+" s";
+ $("barFill").style.width=(100*left/state.duration)+"%";
+
+ if(left<=0)refreshButtons();
+}
+
+async function answer(i){
+ if(choices[state.index]!=null)return;
+
+ if((Date.now()-localStart)/1000>=state.duration)return;
+
+ choices[state.index]=i;
+ saveChoices();
+ refreshButtons();
+
+ try{
+  await setDoc(doc(db,"responses",uid+"_"+state.index),{
+   uid,
+   name,
+   index:state.index,
+   choice:i,
+   ts:serverTimestamp()
+  });
+ }catch(e){
+  showError("Ta réponse n'a pas pu être envoyée.");
+ }
+}
+
+function renderReveal(){
+ show("reveal");
+
+ const mine=choices[state.index];
+ const ok=mine===state.correct;
+
+ const v=$("verdict");
+ v.textContent=mine==null
+  ?"Pas de réponse"
+  :ok?"Bonne réponse !":"Mauvaise réponse";
+
+ v.className=ok?"good":"bad";
+
+ $("goodAnswer").textContent=
+  "Bonne réponse : "+LETTERS[state.correct]+". "+
+  state.q.options[state.correct];
+
+ $("scoreNow").textContent="Ton score : "+myScore+" points";
+}
+
+function renderFinal(){
+ show("final");
+
+ const board=state.leaderboard||[];
+ const pos=board.findIndex(r=>r.uid===uid);
+ const mine=pos>=0?board[pos].score:myScore;
+
+ $("myFinal").textContent=mine+" points";
+
+ $("rank").textContent=pos>=0
+  ?"Tu es "+(pos+1)+"e sur "+board.length+"."
+  :"";
+
+ const ol=$("board");
+ ol.replaceChildren();
+
+ board.forEach(r=>{
+  const li=document.createElement("li");
+
+  if(r.uid===uid)li.className="me";
+
+  const n=document.createElement("span");
+  n.textContent=r.name;
+
+  const p=document.createElement("span");
+  p.className="pts";
+  p.textContent=r.score;
+
+  li.append(n,p);
+  ol.append(li);
+ });
+}
+
+function stopListeners(){
+ if(stateUnsub){
+  stateUnsub();
+  stateUnsub=null;
+ }
+
+ if(scoreUnsub){
+  scoreUnsub();
+  scoreUnsub=null;
+ }
+}
+
+function listenToFirebase(){
+ stopListeners();
+
+ stateUnsub=onSnapshot(doc(db,"quiz","state"),s=>{
+  state=s.exists()?s.data():{status:"lobby"};
+
+  if(state.status==="lobby"&&joined){
+   setDoc(doc(db,"players",uid),{name}).catch(()=>{});
   }
-  onSnapshot(doc(db, "quiz", "state"), s => {
-    state = s.exists() ? s.data() : { status: "lobby" };
-    if (state.status === "lobby" && joined) setDoc(doc(db, "players", uid), { name }).catch(() => {});
-    render();
-  }, () => showError("Lecture du quiz impossible. Vérifie les règles de sécurité."));
-  onSnapshot(doc(db, "scores", uid), s => {
-    myScore = s.exists() ? s.data().score : 0;
-    if (joined && (state.status === "reveal" || state.status === "finished")) render();
-  }, () => {});
-  if (name) join(name); else show("join");
+
+  render();
+ },()=>{
+  showError("Lecture du quiz impossible. Vérifie les règles de sécurité.");
+ });
+
+ scoreUnsub=onSnapshot(doc(db,"scores",uid),s=>{
+  myScore=s.exists()?s.data().score:0;
+
+  if(joined&&(state.status==="reveal"||state.status==="finished")){
+   render();
+  }
+ },()=>{});
+}
+
+async function changeStudent(){
+ if(switching)return;
+
+ switching=true;
+ clearError();
+
+ const btn=$("switchBtn");
+ btn.disabled=true;
+ btn.textContent="Déconnexion...";
+
+ clearInterval(timer);
+ stopListeners();
+
+ joined=false;
+ uid=null;
+ name="";
+ myScore=0;
+ choices={};
+ currentIndex=null;
+
+ try{
+  sessionStorage.removeItem("quizName");
+  sessionStorage.removeItem("choices");
+  localStorage.removeItem("quizName");
+ }catch(e){}
+
+ $("nameInput").value="";
+ $("switchBtn").hidden=true;
+
+ try{
+  if(auth.currentUser){
+   await signOut(auth);
+  }
+
+  const cred=await signInAnonymously(auth);
+  uid=cred.user.uid;
+
+  listenToFirebase();
+
+  show("join");
+  $("nameInput").focus();
+
+ }catch(e){
+  showError("Impossible de changer d'élève. Réessaie.");
+ }
+
+ btn.disabled=false;
+ btn.textContent="Changer d'élève";
+ switching=false;
+}
+
+$("joinBtn").addEventListener("click",()=>{
+ join($("nameInput").value);
+});
+
+$("nameInput").addEventListener("keydown",e=>{
+ if(e.key==="Enter")join($("nameInput").value);
+});
+
+$("switchBtn").addEventListener("click",changeStudent);
+
+(async()=>{
+ try{
+  const cred=await signInAnonymously(auth);
+  uid=cred.user.uid;
+
+  // Ne pas récupérer automatiquement l'ancien prénom.
+  try{
+   localStorage.removeItem("quizName");
+   sessionStorage.removeItem("quizName");
+   sessionStorage.removeItem("choices");
+  }catch(e){}
+
+  choices={};
+  show("join");
+  $("nameInput").value="";
+
+  listenToFirebase();
+
+ }catch(e){
+  showError(
+   "Connexion impossible. Vérifie que la connexion anonyme est activée."
+  );
+ }
 })();
 </script>
 </body>

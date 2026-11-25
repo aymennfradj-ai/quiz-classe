@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Documents de la classe</title>
+<style>
+:root{--bg:#f4f6f9;--fg:#1b2430;--card:#fff;--muted:#66727f;--accent:#1d5fd6;--ok:#1f8a4c;--bad:#c63a3a;--line:#d9dfe6}
+@media (prefers-color-scheme:dark){:root{--bg:#11161c;--fg:#e8edf2;--card:#1a212a;--muted:#97a3af;--accent:#6aa1ff;--ok:#4cc47f;--bad:#ff7d7d;--line:#2b3540}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:860px;margin:0 auto;padding:20px 16px 48px;display:grid;gap:16px}
+h1{font-size:1.3rem;margin:0}
+h2{font-size:1.05rem;margin:0 0 10px}
+#app{display:grid;gap:16px}
+#app[hidden]{display:none}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;min-width:0}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.grow{flex:1 1 200px}
+label{display:block;font-weight:600;margin:10px 0 4px}
+input,textarea,select{width:100%;font:inherit;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg)}
+button{font:inherit;cursor:pointer;padding:10px 16px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--fg)}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+button.danger{color:var(--bad)}
+button:disabled{opacity:.5;cursor:default}
+.err{background:var(--bad);color:#fff;padding:10px 14px;border-radius:8px}
+.muted{color:var(--muted)}
+.opts{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+@media (max-width:520px){.opts{grid-template-columns:1fr}}
+.q{border-top:1px solid var(--line);padding:10px 0}
+.q:first-child{border-top:0}
+.q code{font-family:ui-monospace,Consolas,monospace}
+.q ul{margin:4px 0;padding-left:1.2em}
+.q li.right{color:var(--ok);font-weight:700}
+.stat{font-size:1.6rem;font-weight:700}
+ol{padding-left:1.4em;margin:6px 0}
+li .pts{float:right;font-variant-numeric:tabular-nums}
+.bars{display:grid;gap:6px;margin-top:8px}
+.bar{display:flex;gap:8px;align-items:center}
+.bar i{display:block;height:14px;background:var(--accent);border-radius:3px;min-width:2px}
+.bar.right i{background:var(--ok)}
+a{color:var(--accent)}
+a.btn{display:inline-block;text-decoration:none;padding:10px 16px;border-radius:8px;border:1px solid var(--line);color:var(--fg)}
+a.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<main>
+<div class="row"><h1 class="grow">📚 Cours, séries et examens</h1><a class="btn" href="index.html">Accueil</a></div>
+<p id="err" class="err" hidden></p>
+<section class="card">
+  <div class="row">
+    <div class="grow"><label for="fLevel">Niveau</label><select id="fLevel"></select></div>
+    <div class="grow"><label for="fType">Type</label><select id="fType"></select></div>
+  </div>
+  <label for="search">Rechercher</label><input id="search" type="search" placeholder="Titre du document">
+</section>
+<section class="card"><p id="info" class="muted">Chargement…</p><div id="list"></div></section>
+</main>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
+import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
+import { getFirestore, collection, onSnapshot } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+import { firebaseConfig } from "./firebase-config.js";
+const $ = id => document.getElementById(id);
+const app = initializeApp(firebaseConfig), auth = getAuth(app), db = getFirestore(app);
+function showError(m) { $("err").textContent = m; $("err").hidden = !m; }
+function el(tag, text, cls) { const e = document.createElement(tag); if (text) e.textContent = text; if (cls) e.className = cls; return e; }
+// lien de téléchargement direct pour un fichier Google Drive
+function downloadUrl(url) {
+  const u = new URL(url), id = u.pathname.match(/\/file\/d\/([^/]+)/);
+  return u.hostname === "drive.google.com" && id ? "https://drive.google.com/uc?export=download&id=" + id[1] : null;
+}
+function link(text, href, cls) { const a = el("a", text, cls); a.href = href; a.target = "_blank"; a.rel = "noopener"; return a; }
+let docs = [];
+function options(sel, label, values) {
+  const old = sel.value;
+  sel.replaceChildren(new Option(label, ""), ...[...new Set(values)].sort((a, b) => a.localeCompare(b, "fr", { numeric: true })).map(v => new Option(v, v)));
+  sel.value = [...sel.options].some(o => o.value === old) ? old : "";
+}
+function render() {
+  const level = $("fLevel").value, type = $("fType").value, word = $("search").value.trim().toLowerCase();
+  const rows = docs.filter(d => (!level || d.level === level) && (!type || d.type === type) && d.title.toLowerCase().includes(word))
+    .sort((a, b) => b.order - a.order);
+  $("info").textContent = rows.length ? rows.length + " document(s)" : "Aucun document pour le moment.";
+  $("list").replaceChildren(...rows.filter(d => d.url.startsWith("https://")).map(d => {
+    const box = el("div", "", "q"), buttons = el("div", "", "row");
+    buttons.append(link("Ouvrir", d.url, "btn primary"));
+    const dl = downloadUrl(d.url);
+    if (dl) buttons.append(link("⬇ Télécharger", dl, "btn"));
+    box.append(el("b", d.title), el("p", d.level + " · " + d.type, "muted"), buttons);
+    return box;
+  }));
+}
+["fLevel", "fType", "search"].forEach(id => $(id).addEventListener("input", render));
+(async () => {
+  try {
+    await auth.authStateReady();                       // ne déconnecte pas l'enseignant
+    if (!auth.currentUser) await signInAnonymously(auth);
+    onSnapshot(collection(db, "documents"), s => {
+      docs = s.docs.map(d => d.data());
+      options($("fLevel"), "Tous les niveaux", docs.map(d => d.level));
+      options($("fType"), "Tous les types", docs.map(d => d.type));
+      render();
+    }, () => showError("Lecture impossible. Préviens l'enseignant."));
+  } catch (e) { showError("Connexion impossible. Réessaie."); }
+})();
+</script>
+</body>
+</html>

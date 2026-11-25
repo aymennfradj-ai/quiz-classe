@@ -79,6 +79,11 @@ li .pts{float:right;font-variant-numeric:tabular-nums}
   </div>
 </section>
 
+<section class="card" id="titleCard" hidden>
+  <h2>👑 Programmeur de la classe</h2>
+  <p id="titleLine"></p>
+</section>
+
 <section class="card" id="boardCard" hidden>
   <h2>Classement</h2>
   <ol id="board"></ol>
@@ -111,17 +116,22 @@ li .pts{float:right;font-variant-numeric:tabular-nums}
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
-import { getFirestore, collection, doc, addDoc, setDoc, getDocs, deleteDoc, onSnapshot, query, orderBy, serverTimestamp, writeBatch } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+import { getFirestore, collection, doc, addDoc, setDoc, getDocs, deleteDoc, onSnapshot, query, orderBy, serverTimestamp, writeBatch, increment, Timestamp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 import { firebaseConfig } from "./firebase-config.js";
 
 const $ = id => document.getElementById(id);
 const LETTERS = ["A", "B", "C", "D"];
+const POINTS = 10, BONUS = 5;
+const MEDALS = ["🥇", "🥈", "🥉"], MEDAL_KEYS = ["or", "argent", "bronze"];
+const TITLE_DAYS = 7;
+// identifiant du profil : le nom de l'élève (à calculer de la même façon dans eleve.html)
+const profileId = name => "n_" + name.normalize("NFC").trim().toLowerCase().replace(/\s+/g, " ").replaceAll("/", "-");
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const stateRef = doc(db, "quiz", "state");
 
-let questions = [], players = {}, scores = {}, responses = [], state = { status: "lobby" };
+let questions = [], players = {}, scores = {}, responses = [], state = { status: "lobby" }, title = null;
 let unsubs = [], revealTimer = null, tickTimer = null, busy = false;
 
 const EXAMPLES = [
@@ -184,6 +194,9 @@ function listen() {
   }, fail));
   unsubs.push(onSnapshot(collection(db, "responses"), s => {
     responses = s.docs.map(d => d.data()); renderControls();
+  }, fail));
+  unsubs.push(onSnapshot(doc(db, "quiz", "titre"), s => {
+    title = s.exists() ? s.data() : null; renderTitle();
   }, fail));
   unsubs.push(onSnapshot(stateRef, s => {
     state = s.exists() ? s.data() : { status: "lobby" };
@@ -270,13 +283,22 @@ function renderReveal() {
 }
 
 function renderBoard() {
-  const rows = state.status === "finished" && state.leaderboard
-    ? state.leaderboard
+  const finished = state.status === "finished" && state.leaderboard;
+  const rows = finished ? state.leaderboard
     : Object.entries(scores).map(([uid, s]) => ({ uid, name: s.name, score: s.score })).sort((a, b) => b.score - a.score);
   $("boardCard").hidden = rows.length === 0;
   const ol = $("board");
   ol.replaceChildren();
-  rows.forEach(r => ol.append(el("li", {}, el("span", { text: r.name }), el("span", { class: "pts", text: String(r.score) }))));
+  rows.forEach((r, i) => {
+    const medal = finished && i < 3 && r.score > 0 ? MEDALS[i] + " " : "";
+    ol.append(el("li", {}, el("span", { text: medal + r.name }), el("span", { class: "pts", text: String(r.score) })));
+  });
+}
+
+function renderTitle() {
+  const active = !!title && title.until.toMillis() > Date.now();
+  $("titleCard").hidden = !active;
+  if (active) $("titleLine").textContent = title.name + " (jusqu'au " + title.until.toDate().toLocaleDateString("fr-FR") + ")";
 }
 
 function armTimer() {
@@ -305,15 +327,17 @@ async function revealQuestion() {
     const i = state.index, q = questions[i];
     const start = state.startedAt.toMillis(), dur = state.duration * 1000;
     const snap = await getDocs(collection(db, "responses"));
-    const counts = [0, 0, 0, 0], pts = {};
+    const counts = [0, 0, 0, 0], right = [];
     snap.forEach(d => {
       const r = d.data();
       if (r.index !== i || !r.ts) return;
       counts[r.choice]++;
-      const el = r.ts.toMillis() - start;
-      pts[r.uid] = (r.choice === q.correct && el <= dur + 2000)
-        ? Math.round(500 + 500 * Math.max(0, 1 - el / dur)) : 0;
+      const ms = r.ts.toMillis() - start;
+      if (r.choice === q.correct && ms <= dur + 2000 && players[r.uid]) right.push({ uid: r.uid, ms });
     });
+    right.sort((a, b) => a.ms - b.ms);
+    const pts = {};
+    right.forEach((r, k) => { if (!(r.uid in pts)) pts[r.uid] = POINTS + (k === 0 ? BONUS : 0); });
     for (const [uid, p] of Object.entries(players)) {
       const byQ = { ...((scores[uid] && scores[uid].byQ) || {}), [i]: pts[uid] || 0 };
       const score = Object.values(byQ).reduce((a, b) => a + b, 0);
@@ -325,11 +349,35 @@ async function revealQuestion() {
 }
 
 async function finishQuiz() {
-  const snap = await getDocs(collection(db, "scores"));
-  const got = {}; snap.forEach(d => got[d.id] = d.data());
-  const board = Object.entries(players).map(([uid, p]) => ({ uid, name: p.name, score: (got[uid] && got[uid].score) || 0 }))
-    .sort((a, b) => b.score - a.score);
-  await setDoc(stateRef, { status: "finished", total: state.total, leaderboard: board });
+  if (busy || state.status !== "reveal") return;
+  busy = true;
+  showError("");
+  try {
+    const snap = await getDocs(collection(db, "scores"));
+    const got = {}; snap.forEach(d => got[d.id] = d.data());
+    const board = Object.entries(players).map(([uid, p]) => {
+      const s = got[uid] || {};
+      const fast = Object.values(s.byQ || {}).filter(v => v === POINTS + BONUS).length;
+      return { uid, name: p.name, score: s.score || 0, fast };
+    }).sort((a, b) => b.score - a.score || b.fast - a.fast);
+
+    // tout est enregistré en une seule fois : médailles, trophée, titre et classement
+    const b = writeBatch(db);
+    board.slice(0, 3).filter(r => r.score > 0).forEach((r, i) => {
+      b.set(doc(db, "profils", profileId(r.name)), {
+        name: r.name,
+        medals: { [MEDAL_KEYS[i]]: increment(1) },
+        trophies: increment(i === 0 ? 1 : 0)
+      }, { merge: true });
+      if (i === 0) b.set(doc(db, "quiz", "titre"), {
+        profileId: profileId(r.name), name: r.name,
+        until: Timestamp.fromMillis(Date.now() + TITLE_DAYS * 24 * 3600 * 1000)
+      });
+    });
+    b.set(stateRef, { status: "finished", total: state.total, leaderboard: board });
+    await b.commit();
+  } catch (e) { showError("Erreur à la fin du quiz (vérifie les règles Firestore) : " + e.message); }
+  busy = false;
 }
 
 async function wipe(name) {

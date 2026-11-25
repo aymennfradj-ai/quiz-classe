@@ -36,6 +36,9 @@ ol{padding-left:1.4em}
 li{padding:4px 0}
 li.me{font-weight:700;color:var(--accent)}
 li span.pts{float:right}
+#profile{margin-top:14px}
+#profile p{margin:4px 0}
+.title{font-weight:700;color:var(--accent);font-size:1.2rem}
 </style>
 </head>
 <body>
@@ -69,6 +72,7 @@ Changer d'élève
 <section id="reveal" class="screen card" hidden>
 <h2 id="verdict"></h2>
 <p id="goodAnswer"></p>
+<p id="gain"></p>
 <p id="scoreNow"></p>
 <p class="muted">La question suivante arrive.</p>
 </section>
@@ -78,6 +82,13 @@ Changer d'élève
 <div class="big" id="myFinal"></div>
 <p id="rank"></p>
 <ol id="board"></ol>
+</section>
+
+<section id="profile" class="card" hidden>
+<h2>Mon profil</h2>
+<p id="myTitle" class="title" hidden>👑 Programmeur de la classe</p>
+<p id="myTrophies"></p>
+<p id="myMedals"></p>
 </section>
 </main>
 
@@ -95,6 +106,10 @@ import { firebaseConfig } from "./firebase-config.js";
 
 const $ = id => document.getElementById(id);
 const LETTERS = ["A","B","C","D"];
+const POINTS = 10, BONUS = 5;
+const MEDALS = ["🥇","🥈","🥉"];
+// même calcul que dans prof.html
+const profileId = name => "n_" + name.normalize("NFC").trim().toLowerCase().replace(/\s+/g, " ").replaceAll("/", "-");
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -108,6 +123,8 @@ let choices = {};
 let stateUnsub = null;
 let scoreUnsub = null;
 let switching = false;
+let myByQ = {}, profile = {}, title = null;
+let profileUnsubs = [];
 
 function showError(msg){
  $("err").textContent=msg;
@@ -142,6 +159,7 @@ async function join(n){
   });
 
   joined=true;
+  listenProfile();
   $("switchBtn").hidden=false;
   render();
 
@@ -150,7 +168,45 @@ async function join(n){
  }
 }
 
+function stopProfile(){
+ profileUnsubs.forEach(u=>u());
+ profileUnsubs=[];
+ profile={};
+ title=null;
+}
+
+function listenProfile(){
+ stopProfile();
+ const id=profileId(name);
+ const fail=()=>showError("Profil indisponible. Préviens l'enseignant.");
+
+ profileUnsubs.push(onSnapshot(doc(db,"profils",id),s=>{
+  profile=s.exists()?s.data():{};
+  renderProfile();
+ },fail));
+
+ profileUnsubs.push(onSnapshot(doc(db,"quiz","titre"),s=>{
+  title=s.exists()?s.data():null;
+  renderProfile();
+ },fail));
+}
+
+function renderProfile(){
+ $("profile").hidden=!joined||state.status==="question";
+
+ $("myTitle").hidden=!(title&&title.profileId===profileId(name)
+  &&title.until.toMillis()>Date.now());
+
+ $("myTrophies").textContent="🏆 Trophées : "+(profile.trophies||0);
+
+ const m=profile.medals||{};
+ $("myMedals").textContent=
+  "🥇 "+(m.or||0)+"   🥈 "+(m.argent||0)+"   🥉 "+(m.bronze||0);
+}
+
 function render(){
+ renderProfile();
+
  if(!joined){
   show("join");
   return;
@@ -275,6 +331,11 @@ function renderReveal(){
   "Bonne réponse : "+LETTERS[state.correct]+". "+
   state.q.options[state.correct];
 
+ const won=myByQ[state.index]||0;
+ $("gain").textContent=
+  won===POINTS+BONUS?"⚡ +"+won+" points : tu es le plus rapide !"
+  :won?"+"+won+" points":"";
+
  $("scoreNow").textContent="Ton score : "+myScore+" points";
 }
 
@@ -287,20 +348,20 @@ function renderFinal(){
 
  $("myFinal").textContent=mine+" points";
 
- $("rank").textContent=pos>=0
-  ?"Tu es "+(pos+1)+"e sur "+board.length+"."
-  :"";
+ $("rank").textContent=pos<0?""
+  :(pos<3&&mine>0?MEDALS[pos]+" ":"")
+   +"Tu es "+(pos===0?"1er":(pos+1)+"e")+" sur "+board.length+".";
 
  const ol=$("board");
  ol.replaceChildren();
 
- board.forEach(r=>{
+ board.forEach((r,k)=>{
   const li=document.createElement("li");
 
   if(r.uid===uid)li.className="me";
 
   const n=document.createElement("span");
-  n.textContent=r.name;
+  n.textContent=(k<3&&r.score>0?MEDALS[k]+" ":"")+r.name;
 
   const p=document.createElement("span");
   p.className="pts";
@@ -340,6 +401,7 @@ function listenToFirebase(){
 
  scoreUnsub=onSnapshot(doc(db,"scores",uid),s=>{
   myScore=s.exists()?s.data().score:0;
+  myByQ=s.exists()?s.data().byQ||{}:{};
 
   if(joined&&(state.status==="reveal"||state.status==="finished")){
    render();
@@ -360,8 +422,12 @@ async function changeStudent(){
  clearInterval(timer);
  stopListeners();
 
+ stopProfile();
+ $("profile").hidden=true;
+
  joined=false;
  uid=null;
+ myByQ={};
  name="";
  myScore=0;
  choices={};

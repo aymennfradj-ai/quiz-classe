@@ -67,10 +67,43 @@ const $ = id => document.getElementById(id);
 const app = initializeApp(firebaseConfig), auth = getAuth(app), db = getFirestore(app);
 function showError(m) { $("err").textContent = m; $("err").hidden = !m; }
 function el(tag, text, cls) { const e = document.createElement(tag); if (text) e.textContent = text; if (cls) e.className = cls; return e; }
-// lien de téléchargement direct pour un fichier Google Drive
+// lien de téléchargement : Google Drive, Docs, Slides, Sheets, Dropbox ou fichier direct
 function downloadUrl(url) {
-  const u = new URL(url), id = u.pathname.match(/\/file\/d\/([^/]+)/);
-  return u.hostname === "drive.google.com" && id ? "https://drive.google.com/uc?export=download&id=" + id[1] : null;
+  let u;
+  try { u = new URL(url); } catch { return null; }
+  if (u.hostname === "drive.google.com") {
+    if (u.pathname.includes("/folders/")) return null;   // un dossier ne se télécharge pas ainsi
+    const id = u.pathname.match(/\/file\/d\/([^/]+)/)?.[1] || u.searchParams.get("id");
+    return id ? "https://drive.google.com/uc?export=download&id=" + encodeURIComponent(id) : null;
+  }
+  if (u.hostname === "docs.google.com") {
+    const m = u.pathname.match(/\/(document|presentation|spreadsheets)\/d\/([\w-]{20,})/);
+    if (!m) return null;
+    const end = { document: "/export?format=pdf", presentation: "/export/pdf", spreadsheets: "/export?format=xlsx" }[m[1]];
+    return "https://docs.google.com/" + m[1] + "/d/" + m[2] + end;
+  }
+  if (u.hostname === "www.dropbox.com") { u.searchParams.set("dl", "1"); return u.href; }
+  return isFile(u) ? u.href : null;
+}
+function isFile(u) {
+  return u.hostname === "firebasestorage.googleapis.com" || /\.(pdf|docx?|pptx?|xlsx?|zip|rar|py|ino|skp|png|jpe?g)$/i.test(u.pathname);
+}
+// fichier direct : on essaie de l'enregistrer, sinon on l'ouvre
+async function saveFile(e) {
+  const a = e.currentTarget, u = new URL(a.href);
+  if (!isFile(u) || u.hostname === "www.dropbox.com") return;
+  e.preventDefault();
+  try {
+    const r = await fetch(u.href);
+    if (!r.ok) throw new Error(r.status);
+    const tmp = el("a");
+    tmp.href = URL.createObjectURL(await r.blob());
+    tmp.download = decodeURIComponent(u.pathname).split("/").pop();
+    document.body.append(tmp);
+    tmp.click();
+    tmp.remove();
+    setTimeout(() => URL.revokeObjectURL(tmp.href), 60000);
+  } catch { location.href = u.href; }
 }
 function link(text, href, cls) { const a = el("a", text, cls); a.href = href; a.target = "_blank"; a.rel = "noopener"; return a; }
 let docs = [];
@@ -88,7 +121,11 @@ function render() {
     const box = el("div", "", "q"), buttons = el("div", "", "row");
     buttons.append(link("Ouvrir", d.url, "btn primary"));
     const dl = downloadUrl(d.url);
-    if (dl) buttons.append(link("⬇ Télécharger", dl, "btn"));
+    if (dl) {
+      const b = link("⬇ Télécharger", dl, "btn");
+      b.addEventListener("click", saveFile);
+      buttons.append(b);
+    }
     box.append(el("b", d.title), el("p", d.level + " · " + d.type, "muted"), buttons);
     return box;
   }));

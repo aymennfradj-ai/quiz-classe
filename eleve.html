@@ -1,4 +1,3 @@
-
 <!doctype html>
 <html lang="fr">
 <head>
@@ -23,7 +22,10 @@ button{font:inherit;cursor:pointer}
 .meta{display:flex;justify-content:space-between;color:var(--muted)}
 .bar{height:8px;background:var(--line);border-radius:4px;overflow:hidden;margin:8px 0}
 #barFill{height:100%;width:100%;background:var(--accent);transition:width .2s linear}
-#qText{font-family:ui-monospace,Consolas,monospace;word-break:break-word}
+#qText{font:600 1.05rem/1.6 ui-monospace,Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere;unicode-bidi:plaintext;text-align:start;tab-size:4;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:12px}
+.opt span{flex:1;min-width:0;white-space:pre-wrap;overflow-wrap:anywhere;unicode-bidi:plaintext;text-align:start}
+.opt b{flex:none}
+#goodAnswer{white-space:pre-wrap;overflow-wrap:anywhere}
 .opts{display:grid;gap:10px;margin-top:14px}
 .opt{display:flex;gap:12px;align-items:center;text-align:left;padding:14px;border:2px solid var(--line);border-radius:10px;background:var(--card);color:var(--fg)}
 .opt b{min-width:1.6em;height:1.6em;display:grid;place-items:center;border-radius:50%;background:var(--line)}
@@ -64,7 +66,7 @@ Changer d'élève
 <section id="question" class="screen card" hidden>
 <div class="meta"><span id="qNum"></span><span id="timeLeft"></span></div>
 <div class="bar"><div id="barFill"></div></div>
-<h2 id="qText"></h2>
+<h2 id="qText" dir="auto"></h2>
 <div id="opts" class="opts"></div>
 <p id="sent" class="muted" hidden>Réponse envoyée. Attends la fin du temps.</p>
 </section>
@@ -252,6 +254,7 @@ function renderQuestion(){
 
    const s=document.createElement("span");
    s.textContent=t;
+   s.dir="auto";
 
    b.append(l,s);
    b.addEventListener("click",()=>answer(i));

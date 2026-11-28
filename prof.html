@@ -19,6 +19,7 @@ h2{font-size:1.05rem;margin:0 0 10px}
 .grow{flex:1 1 200px}
 label{display:block;font-weight:600;margin:10px 0 4px}
 input,textarea,select{width:100%;font:inherit;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg)}
+#qText{min-height:160px;resize:vertical;font-family:ui-monospace,Consolas,monospace;tab-size:4}
 button{font:inherit;cursor:pointer;padding:10px 16px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--fg)}
 button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
 button.danger{color:var(--bad)}
@@ -29,8 +30,9 @@ button:disabled{opacity:.5;cursor:default}
 @media (max-width:520px){.opts{grid-template-columns:1fr}}
 .q{border-top:1px solid var(--line);padding:10px 0}
 .q:first-child{border-top:0}
-.q code{font-family:ui-monospace,Consolas,monospace}
+.qtext{white-space:pre-wrap;overflow-wrap:anywhere;unicode-bidi:plaintext;text-align:start;font-family:ui-monospace,Consolas,monospace;tab-size:4;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px;margin:6px 0}
 .q ul{margin:4px 0;padding-left:1.2em}
+.q li{white-space:pre-wrap;overflow-wrap:anywhere}
 .q li.right{color:var(--ok);font-weight:700}
 .stat{font-size:1.6rem;font-weight:700}
 ol{padding-left:1.4em;margin:6px 0}
@@ -96,11 +98,11 @@ li .pts{float:right;font-variant-numeric:tabular-nums}
 
   <h2 style="margin-top:20px">Ajouter une question</h2>
   <label for="qText">Énoncé</label>
-  <textarea id="qText" rows="2"></textarea>
+  <textarea id="qText" rows="7" dir="auto" spellcheck="false" placeholder="Écrivez la question. Les retours à la ligne et les espaces sont conservés."></textarea>
   <label>Réponses possibles</label>
   <div class="opts">
-    <input id="o0" placeholder="Réponse A"><input id="o1" placeholder="Réponse B">
-    <input id="o2" placeholder="Réponse C"><input id="o3" placeholder="Réponse D">
+    <input id="o0" dir="auto" placeholder="Réponse A"><input id="o1" dir="auto" placeholder="Réponse B">
+    <input id="o2" dir="auto" placeholder="Réponse C"><input id="o3" dir="auto" placeholder="Réponse D">
   </div>
   <div class="row">
     <div class="grow"><label for="qCorrect">Bonne réponse</label>
@@ -215,7 +217,8 @@ function renderQuestions() {
     const del = el("button", { class: "danger", text: "Supprimer", onclick: () => deleteDoc(doc(db, "questions", q.id)) });
     del.disabled = !editable();
     box.append(el("div", { class: "q" },
-      el("div", {}, el("b", { text: (i + 1) + ". " }), el("code", { text: q.text }), el("span", { class: "muted", text: "  (" + q.duration + " s)" })),
+      el("div", {}, el("b", { text: "Question " + (i + 1) }), el("span", { class: "muted", text: "  (" + q.duration + " s)" })),
+      el("div", { class: "qtext", dir: "auto", text: q.text }),
       ul, del));
   });
   $("exampleBtn").disabled = !editable();
@@ -223,7 +226,8 @@ function renderQuestions() {
 }
 
 $("addBtn").addEventListener("click", async () => {
-  const text = $("qText").value.trim();
+  // on garde les retours à la ligne et l'indentation ; seules les lignes vides au début et à la fin sont retirées
+  const text = $("qText").value.replace(/^\s*\n/, "").trimEnd();
   const options = [0, 1, 2, 3].map(i => $("o" + i).value.trim());
   if (!text || options.some(o => !o)) { showError("Remplis l'énoncé et les 4 réponses."); return; }
   showError("");
